@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+        }
+
+        .upload-container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .drop-zone {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 3rem;
+            margin: 1rem 0;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .drop-zone.dragover {
+            background-color: #ecf0f1;
+            border-color: #2980b9;
+        }
+
+        .drop-zone p {
+            color: #7f8c8d;
+            margin-bottom: 1rem;
+        }
+
+        .results {
+            display: none;
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .score-container {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .overall-score {
+            font-size: 3rem;
+            color: #2c3e50;
+            margin: 1rem 0;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-wrapper {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+        }
+
+        .recommendations {
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+        }
+
+        .recommendations h3 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+        }
+
+        .recommendations ul {
+            list-style-type: none;
+        }
+
+        .recommendations li {
+            margin-bottom: 0.5rem;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .recommendations li:before {
+            content: "•";
+            color: #3498db;
+            position: absolute;
+            left: 0;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 2rem 0;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Resume Analyzer</h1>
+            <p>Drop your resume (PDF, JPG, PNG) to get detailed analysis and recommendations</p>
+        </div>
+
+        <div class="upload-container">
+            <div class="drop-zone" id="dropZone">
+                <p>Drag & Drop your resume here</p>
+                <p>or</p>
+                <input type="file" id="fileInput" hidden accept=".pdf,.png,.jpg,.jpeg">
+                <button onclick="document.getElementById('fileInput').click()" style="padding: 10px 20px; background-color: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                    Browse Files
+                </button>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Analyzing your resume...</p>
+        </div>
+
+        <div class="results" id="results">
+            <div class="score-container">
+                <h2>Analysis Results</h2>
+                <div class="overall-score" id="overallScore">0</div>
+                <p>Overall Score</p>
+            </div>
+
+            <div class="charts-container">
+                <div class="chart-wrapper">
+                    <canvas id="sectionScores"></canvas>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="contentScores"></canvas>
+                </div>
+            </div>
+
+            <div class="recommendations">
+                <h3>Recommendations for Improvement</h3>
+                <ul id="recommendationsList"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const loading = document.getElementById('loading');
+        const results = document.getElementById('results');
+        let sectionChart, contentChart;
+
+        // Drag and drop handlers
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleFile(file);
+        });
+
+        function handleFile(file) {
+            const allowedTypes = ['application/pdf', 'image/png', 'image/jpeg'];
+            if (!allowedTypes.includes(file.type)) {
+                alert('Please upload a PDF or image file');
+                return;
+            }
+
+            loading.style.display = 'block';
+            results.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/analyze', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                results.style.display = 'block';
+                displayResults(data);
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                alert('Error analyzing resume: ' + error.message);
+            });
+        }
+
+        function displayResults(data) {
+            // Update overall score
+            document.getElementById('overallScore').textContent = 
+                Math.round(data.scores.overall_score);
+
+            // Update section scores chart
+            const sectionScores = data.scores.section_scores;
+            updateChart('sectionScores', 'Section Scores', 
+                Object.keys(sectionScores), Object.values(sectionScores));
+
+            // Update content scores chart
+            const contentScores = data.scores.content_scores;
+            updateChart('contentScores', 'Content Scores', 
+                Object.keys(contentScores), Object.values(contentScores));
+
+            // Update recommendations
+            const recommendationsList = document.getElementById('recommendationsList');
+            recommendationsList.innerHTML = '';
+            data.recommendations.forEach(rec => {
+                const li = document.createElement('li');
+                li.textContent = rec;
+                recommendationsList.appendChild(li);
+            });
+        }
+
+        function updateChart(canvasId, label, labels, data) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (window[canvasId + 'Chart']) {
+                window[canvasId + 'Chart'].destroy();
+            }
+
+            window[canvasId + 'Chart'] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels.map(label => label.replace('_', ' ').toUpperCase()),
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        backgroundColor: 'rgba(52, 152, 219, 0.6)',
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
